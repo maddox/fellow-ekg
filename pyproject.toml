@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fellow-ekg"
+version = "0.1.0"
+description = "Async local client for the Fellow Stagg EKG Pro kettle's built-in HTTP CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["aiohttp>=3.9"]
+
+[project.optional-dependencies]
+discovery = ["zeroconf>=0.130"]
+test = ["pytest>=8", "pytest-asyncio>=0.23", "zeroconf>=0.130"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fellow_ekg"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
