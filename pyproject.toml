@@ -4,16 +4,22 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fellow-ekg"
-version = "0.2.0"
+version = "0.2.1"
 description = "Async local client for the Fellow Stagg EKG Pro kettle's built-in HTTP CLI"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
-dependencies = ["aiohttp>=3.9"]
+# No required dependencies on purpose. Home Assistant installs custom
+# integration requirements with `uv pip install --upgrade`, which re-resolves
+# every transitive dependency: requiring aiohttp made uv try to upgrade
+# multidict inside HA's read-only system site-packages, and the install
+# failed. HA already ships aiohttp; standalone users install the extra.
+dependencies = []
 
 [project.optional-dependencies]
+aiohttp = ["aiohttp>=3.9"]
 discovery = ["zeroconf>=0.130"]
-test = ["pytest>=8", "pytest-asyncio>=0.23", "zeroconf>=0.130"]
+test = ["aiohttp>=3.9", "pytest>=8", "pytest-asyncio>=0.23", "zeroconf>=0.130"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fellow_ekg"]

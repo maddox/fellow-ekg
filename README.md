@@ -22,11 +22,20 @@ Home Assistant.
 ## Installation
 
 ```bash
-pip install "fellow-ekg[discovery] @ git+https://github.com/maddox/fellow-ekg"
+pip install "fellow-ekg[aiohttp,discovery] @ git+https://github.com/maddox/fellow-ekg"
 ```
 
-Drop the `[discovery]` extra if you don't need mDNS discovery.
-Requires Python 3.11+.
+Requires Python 3.11+. The package has no required dependencies on purpose,
+so install the extras:
+
+- `aiohttp`: the HTTP client. Required unless your environment already has
+  aiohttp, as Home Assistant does.
+- `discovery`: `zeroconf`, for mDNS discovery.
+
+Why: Home Assistant installs integration requirements with
+`uv pip install --upgrade`. That re-resolves every transitive dependency, and
+a hard `aiohttp` requirement made uv try to upgrade `multidict` inside Home
+Assistant's read-only system packages, which failed the install.
 
 ## Quick start
 
