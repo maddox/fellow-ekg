@@ -9,8 +9,7 @@ from aiohttp.test_utils import TestServer
 from fellow_ekg import EKGClient, EKGCommandError, EKGConnectionError
 
 KNOWN = {
-    "temp": ["tempr min 20.0 max 21.0 av 20.5"],
-    "state": ["mode: IDLE"],
+    "state": ["mode=S_Off", "tempr=26.5 C"],
     "heaton": [],
     "heatoff": [],
 }
@@ -25,7 +24,9 @@ async def kettle():
         received.append(cmd)
         body = f"<form></form>I (1) Cli: cmd len {len(cmd)}: '{cmd}'\n"
         if cmd in KNOWN:
-            body += "".join(f"I (2) Cli: {line}\n" for line in KNOWN[cmd])
+            body += "I (2) Main: unrelated log line\n"
+            body += "".join(f"{line}\n" for line in KNOWN[cmd])
+            body += f"I (3) Cli: command '{cmd}' ret 0\n"
         else:
             body += f"I (2) Cli: cannot find command '{cmd}'\n"
         return web.Response(text=body, content_type="text/html")
@@ -47,9 +48,9 @@ async def kettle():
 async def test_reads(kettle):
     client, received = kettle
     assert (await client.get_firmware_info()).version == "1.2.5CL CLI"
-    assert (await client.get_temperature()).average == 20.5
-    assert (await client.get_state()).values == {"mode": "IDLE"}
-    assert received == ["temp", "state"]
+    assert await client.get_temperature() == 26.5
+    assert (await client.get_state()).mode == "S_Off"
+    assert received == ["state", "state"]
 
 
 async def test_heat_on_off(kettle):

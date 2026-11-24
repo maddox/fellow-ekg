@@ -14,7 +14,7 @@ Home Assistant.
 ## Features
 
 - Find kettles on the LAN via mDNS
-- Read firmware info, temperature, and kettle state
+- Read firmware info, water temperature, target and boil temperatures, and kettle mode
 - Turn the heater on and off, with an automatic shut-off timer
 - Fully async (`aiohttp`), and accepts a shared session, as Home Assistant expects
 - Small: one required dependency (`aiohttp`), with `zeroconf` optional for discovery
@@ -40,9 +40,9 @@ async def main():
 
     async with EKGClient(kettles[0].host) as kettle:
         print(await kettle.get_firmware_info())
-        temp = await kettle.get_temperature()
-        print(temp.current, temp.minimum, temp.maximum, temp.average)
-        print((await kettle.get_state()).values)
+        state = await kettle.get_state()
+        print(state.mode, state.temperature, state.target_temperature)
+        # S_Off 26.04 96.11
 
 asyncio.run(main())
 ```
@@ -69,8 +69,8 @@ Pass an existing `AsyncZeroconf` instance via `aiozc=` to reuse it.
 | Method | Kettle command | Returns / notes |
 |---|---|---|
 | `get_firmware_info()` | `GET /` | `FirmwareInfo(version, build_date, build_time, running_partition)`. No side effects; good for connection checks |
-| `get_temperature()` | `temp` | `Temperature(current, minimum, maximum, average, raw)` |
-| `get_state()` | `state` | `EKGState(values, raw)`: best-effort `dict` plus raw lines |
+| `get_state()` | `state` | `EKGState`; see below. One request returns everything |
+| `get_temperature()` | `state` | Current water temperature in °C (`float \| None`) |
 | `heat_on(max_seconds=600)` | `heaton` | Turns the heater on and schedules `heatoff` after `max_seconds` |
 | `heat_off()` | `heatoff` | Turns the heater off and cancels the timer |
 | `command(cmd)` | any | Escape hatch: returns output lines for any CLI command |
@@ -81,6 +81,42 @@ Errors:
 - `EKGConnectionError`: the kettle is unreachable, timed out, or returned an HTTP error
 - `EKGCommandError`: the kettle rejected the command, or produced no output for it
 - Both inherit from `EKGError`
+
+### `EKGState`
+
+All temperatures are in °C, whatever the kettle's display units are.
+
+| Property | Source line | Example |
+|---|---|---|
+| `mode` | `mode=S_Off` | `"S_Off"` |
+| `temperature` | `tempr=26.110954 C` | `26.11`, the current water temperature |
+| `target_temperature` | `temprT=96.111115 C` | `96.11`, the kettle's own target (set on the dial) |
+| `boil_temperature` | `temprB=100.000000 C` | `100.0`, adjusted for the altitude setting |
+| `display_setpoint` | `temps=205 F` | `(205.0, "F")`, the target as the display shows it |
+| `screen` | `scrname=wnd` | `"wnd"` |
+| `clock` | `clock=16:39` | `"16:39"` |
+| `ble_connected` | `ble conn=0` | `False` |
+| `kettle_flags` | `ketl= ho 0 wd 0 nw 0 ipb 0 bf 0 tr 0` | `{"ho": 0, ...}`; meanings unknown |
+| `values` | every `key=value` line | `dict[str, str]`, verbatim |
+| `raw` | all output lines | `list[str]` |
+
+Full `state` output from a real kettle:
+
+```
+scrname=wnd
+value=50663463
+mode=S_Off
+tempr=26.110954 C
+temprB=100.000000 C
+temprT=96.111115 C
+ketl= ho 0 wd 0 nw 0 ipb 0 bf 0 tr 0
+temps=205 F
+tempsc=205 F
+units=0
+clock=16:39
+ticks=-1430236073 -1439438423 -1430237792
+ble conn=0
+```
 
 ### Discovery
 
@@ -99,7 +135,7 @@ This library is meant to back a custom integration:
   kettles automatically, and use `DiscoveredKettle.unique_id` as the config
   entry's unique ID
 - Use `get_firmware_info()` in the config flow to check the connection
-- Poll `get_temperature()` / `get_state()` with a `DataUpdateCoordinator`
+- Poll `get_state()` with a `DataUpdateCoordinator`
 
 ## Safety
 
@@ -129,14 +165,22 @@ None of these require authentication. A CLI response looks like:
 
 ```
 <form action="cli" method="GET">...</form>
-I (2855011443) Cli: cmd len 4: 'help'
-I (2855011453) Cli: reset : reset
+I (2864731213) Cli: cmd len 5: 'state'
+I (2864731223) Main: OTA vd 1 ldt 2765075 ...
+scrname=wnd
+mode=S_Off
+I (2864731243) Cli: command 'state' ret 0
 ```
 
 The page appears to show a shared log buffer that can include output from
-earlier commands. The parser only keeps lines after the *last* echo of the
-command it sent, and errors out if there's no echo. It never returns stale
-output. The client also sends commands one at a time.
+earlier commands. The parser keeps only the lines between the *last* echo of
+the command it sent and that command's `ret` trailer. It drops log lines from
+other tasks, and raises an error if the echo is missing or `ret` isn't 0. It
+never returns stale output. The client also sends commands one at a time.
+
+The `temp` command looks like the obvious way to read temperature, but it only
+reports statistics after `tstprd` has been set, and returns zeros otherwise.
+The library reads temperature from `state` instead.
 
 Firmware this was built against: `1.2.5CL CLI` (built Dec 10 2025), with
 factory partition `1.1.14SSB`.
@@ -166,10 +210,9 @@ only your Home Assistant host to reach it.
 
 ## Known gaps
 
-- The output formats of `temp` and `state` haven't been captured from a real
-  device yet, so their parsers are tolerant guesses. `raw` always holds the
-  original lines. Run `curl 'http://<kettle>/cli?cmd=temp'` and open an issue
-  or PR with the output.
+- Only the `S_Off` mode has been observed so far. Other mode names, such as
+  heating or hold, are passed through as-is.
+- The `ketl` flags and `units` values aren't decoded yet.
 - Heat control is raw GPIO, not "heat to X°".
 
 ## Development
@@ -180,4 +223,5 @@ python3 -m venv .venv
 .venv/bin/pytest
 ```
 
-The tests use a fake kettle on localhost and never touch a real device.
+The tests use real responses captured from a kettle (`tests/fixtures/`) and a
+fake kettle on localhost. They never touch a real device.

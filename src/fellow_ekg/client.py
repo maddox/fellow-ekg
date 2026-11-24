@@ -6,8 +6,8 @@ import logging
 import aiohttp
 
 from .exceptions import EKGCommandError, EKGConnectionError
-from .models import EKGState, FirmwareInfo, Temperature
-from .parser import parse_cli_output, parse_firmware_info, parse_state, parse_temperature
+from .models import EKGState, FirmwareInfo
+from .parser import parse_cli_output, parse_firmware_info, parse_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,10 +81,16 @@ class EKGClient:
         return parse_firmware_info(await self._get("/"))
 
     async def get_state(self) -> EKGState:
+        """Full kettle state: mode, temperatures (°C), flags. One request."""
         return parse_state(await self.command("state"))
 
-    async def get_temperature(self) -> Temperature:
-        return parse_temperature(await self.command("temp"))
+    async def get_temperature(self) -> float | None:
+        """Current water temperature in °C.
+
+        Read from ``state``; the ``temp`` command only reports statistics
+        after ``tstprd`` has been configured, and returns zeros otherwise.
+        """
+        return (await self.get_state()).temperature
 
     # -- Heater ------------------------------------------------------------
 
